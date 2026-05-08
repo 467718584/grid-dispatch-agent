@@ -1,0 +1,24 @@
+//获取下达计划数据
+{
+    "flag": "common_getPlan",//调用标识
+    "queryParams": {
+        "bTime": '2025-01-01',//开始时间
+		"eTime": '2025-01-01',//结束时间
+		"adid": 1263000001,//计划点号
+		"falg": 5,//计划类型
+        "userName": 66605384.475033835//用户名
+    }
+}
+返回说明:
+{
+    "data": {
+	"result:[]//计划数据，以List<HPSPlanload>形式返回
+	},
+    "meta": {
+        "msg": "success",
+        "code": 200,//状态码
+        "success": true,
+        "time": "2025-06-03 13:49:44",
+        "timestamp": "2025-06-03 13:49:44"
+    }
+}

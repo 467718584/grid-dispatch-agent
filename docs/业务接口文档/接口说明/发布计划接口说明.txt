@@ -1,0 +1,22 @@
+//发布计划
+{
+    "flag": "common_saveScheme",//调用标识
+    "queryParams": {
+        "type": 4,//功能类型
+        "schemeName": "2025年06月03日14时防洪方案",//方案名
+        "description": "描述1",//方案描述
+        "cover": true,//同名方案是否覆盖，默认为true
+        "userName": 66605384.475033835//用户名
+    }
+}
+返回说明
+{
+    "data": {},
+    "meta": {
+        "msg": "success",
+        "code": 200,//状态码
+        "success": true,
+        "time": "2025-06-03 13:49:44",
+        "timestamp": "2025-06-03 13:49:44"
+    }
+}
