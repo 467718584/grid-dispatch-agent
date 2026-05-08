@@ -1,0 +1,48 @@
+# Grid Dispatch Agent - Docker Compose部署
+
+version: '3.8'
+
+services:
+  # Grid Agent API服务
+  grid-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grid-agent-api
+    ports:
+      - "8000:8000"
+    environment:
+      - LLM_URL=${LLM_URL:-http://host.docker.internal:8000/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+    volumes:
+      # 挂载配置目录
+      - ./config:/app/config:ro
+    networks:
+      - grid-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # 示例：本地LLM服务（可选）
+  # 取消注释即可运行本地LLM
+  # local-llm:
+  #   image: ollama/ollama:latest
+  #   container_name: local-llm
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   networks:
+  #     - grid-network
+  #   restart: unless-stopped
+
+networks:
+  grid-network:
+    driver: bridge
+
+# volumes:
+#   ollama-data:
