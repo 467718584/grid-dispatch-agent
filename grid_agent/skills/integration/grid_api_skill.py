@@ -12,7 +12,7 @@ API文档路径: docs/业务接口文档/
 """
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from ..base import BaseSkill
+from ...skill.base import BaseSkill
 
 
 class GridDispatchAPISkill(BaseSkill):
