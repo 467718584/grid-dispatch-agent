@@ -484,7 +484,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             
             # 步骤1: 初始化
             step = "init"
-            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            info = {"name": "系统初始化", "desc": "正在连接电网调度系统...", "icon": "🔗"}
             msg_id = str(uuid.uuid4())
             yield FeishuStreamOutput.format_text(
                 chat_id, conversation_id, msg_id,
@@ -503,7 +503,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             
             # 步骤2: 读取约束
             step = "get_constraint"
-            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            info = {"name": "读取约束", "desc": "正在读取发电调度约束数据...", "icon": "📋"}
             msg_id = str(uuid.uuid4())
             yield FeishuStreamOutput.format_text(
                 chat_id, conversation_id, msg_id,
@@ -518,7 +518,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             
             # 步骤3: 调度计算
             step = "calculate"
-            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            info = {"name": "调度计算", "desc": "正在进行防洪优化计算，请稍候...", "icon": "⚡"}
             msg_id = str(uuid.uuid4())
             yield FeishuStreamOutput.format_text(
                 chat_id, conversation_id, msg_id,
@@ -535,9 +535,36 @@ async def execute_task_stream(request: StreamExecuteRequest):
                 yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
                 return
             
-            # 步骤4: 库区查询
+            # 步骤4: 发布方案
+            step = "save_scheme"
+            info = {"name": "发布方案", "desc": "正在保存并发布调度方案...", "icon": "💾"}
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                f"{info['icon']} **{info['name']}**\n{info['desc']}",
+                component_name=f"step-{step}",
+                step_name=info['name'],
+                step_desc=info['desc']
+            )
+            await asyncio.sleep(0.3)
+            
+            now = datetime.now()
+            scheme_name = f"调度方案_{now.strftime('%Y%m%d%H%M')}"
+            save_result = await executor.save_scheme(
+                scheme_name=scheme_name,
+                description=f"任务: {request.task}",
+                cover=True,
+                type=3
+            )
+            
+            if not save_result.get("success"):
+                yield FeishuStreamOutput.format_error(chat_id, conversation_id, msg_id, f"发布方案失败: {save_result.get('message')}")
+                yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+                return
+            
+            # 步骤5: 库区查询
             step = "model_list"
-            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            info = {"name": "库区查询", "desc": "正在获取流域库区列表...", "icon": "🗺️"}
             msg_id = str(uuid.uuid4())
             yield FeishuStreamOutput.format_text(
                 chat_id, conversation_id, msg_id,
@@ -566,9 +593,9 @@ async def execute_task_stream(request: StreamExecuteRequest):
             
             rsvr_ids = extract_leaf_ids(tree_data)
             
-            # 步骤5: 结果读取
+            # 步骤6: 结果读取（使用scheme_name和rsvr_ids）
             step = "result_table"
-            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            info = {"name": "结果读取", "desc": "正在读取计算结果数据...", "icon": "📊"}
             msg_id = str(uuid.uuid4())
             yield FeishuStreamOutput.format_text(
                 chat_id, conversation_id, msg_id,
@@ -579,14 +606,17 @@ async def execute_task_stream(request: StreamExecuteRequest):
             )
             await asyncio.sleep(0.3)
             
-            if rsvr_ids:
-                result_table = await executor.get_result_table(is_statistics=True, rsvr_ids=rsvr_ids)
+            if rsvr_ids and scheme_name:
+                read_data_result = await executor.read_data(
+                    scheme_name=scheme_name,
+                    rsvr_ids=rsvr_ids
+                )
             else:
-                result_table = {"success": False, "warning": "库区ID列表为空"}
+                read_data_result = {"success": False, "warning": "库区ID或方案名为空"}
             
-            # 输出计算结果表
-            if result_table.get("success"):
-                table_data = result_table.get("data", {})
+            # 步骤6.5: 结果表格输出
+            if read_data_result.get("success"):
+                table_data = read_data_result.get("data", {})
                 result_columns = table_data.get("columns", [])
                 result_rows = table_data.get("dataResList", [])
                 if result_rows:
@@ -617,34 +647,20 @@ async def execute_task_stream(request: StreamExecuteRequest):
                         step_name="结果读取",
                         step_desc="暂无数据"
                     )
+            elif read_data_result.get("warning"):
+                yield FeishuStreamOutput.format_markdown(
+                    chat_id, conversation_id, str(uuid.uuid4()),
+                    f"⚠️ {read_data_result.get('warning')}",
+                    component_name="step-result-table-data",
+                    step_name="结果读取",
+                    step_desc="警告"
+                )
             
-            # 步骤6: 发布方案
-            step = "save_scheme"
-            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
-            msg_id = str(uuid.uuid4())
-            yield FeishuStreamOutput.format_text(
-                chat_id, conversation_id, msg_id,
-                f"{info['icon']} **{info['name']}**\n{info['desc']}",
-                component_name=f"step-{step}",
-                step_name=info['name'],
-                step_desc=info['desc']
-            )
-            await asyncio.sleep(0.3)
-            
-            now = datetime.now()
-            scheme_name = f"调度方案_{now.strftime('%Y%m%d%H%M')}"
-            save_result = await executor.save_scheme(
-                scheme_name=scheme_name,
-                description=f"任务: {request.task}",
-                cover=True,
-                type=3
-            )
-            
-            # 最终汇总输出
+            # 步骤7: 汇总
             yield FeishuStreamOutput.format_markdown(
                 chat_id, conversation_id, str(uuid.uuid4()),
                 f"✅ **{scheme_name}** 已发布！\n\n"
-                f"📋 执行步骤: 系统初始化 → 读取约束 → 调度计算 → 库区查询 → 结果读取 → 发布方案\n\n"
+                f"📋 执行步骤: 系统初始化 → 读取约束 → 调度计算 → 发布方案 → 库区查询 → 结果读取 → 结果表格\n\n"
                 f"📝 任务: {request.task}",
                 complete=True,
                 component_name="final-result"

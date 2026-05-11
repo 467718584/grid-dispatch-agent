@@ -355,6 +355,45 @@ class GridDispatchAPIExecutor:
         
         return await self._call_api(payload)
     
+    # ==================== 接口7: 读取方案数据（新增） ====================
+    
+    async def read_data(
+        self,
+        type: int = 3,
+        user_name: str = None,
+        scheme_name: str = None,
+        rsvr_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        读取方案数据接口
+        
+        参数说明:
+        - type: 功能类型，短期发电计划为3
+        - user_name: 用户名
+        - scheme_name: 方案名称（发布方案时生成的名字）
+        - rsvr_ids: 库区ID列表
+        
+        返回:
+        {
+            "success": bool,
+            "data": {...},  # 方案数据
+            ...
+        }
+        """
+        user_name = user_name or self._session_user or self.default_user
+        
+        payload = {
+            "flag": "common_readDat",
+            "queryParams": {
+                "type": type,
+                "userName": user_name,
+                "schemeName": scheme_name,
+                "rsvrIds": rsvr_ids
+            }
+        }
+        
+        return await self._call_api(payload)
+    
     # ==================== 内部方法 ====================
     
     async def _call_api(self, payload: Dict) -> Dict[str, Any]:
