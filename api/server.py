@@ -193,6 +193,30 @@ class FeishuStreamOutput:
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     
     @staticmethod
+    def format_json(chat_id: int, conversation_id: str, message_id: str,
+                    json_data: Any, complete: bool = False, finish: bool = False,
+                    component_name: str = None, step_name: str = None, step_desc: str = None) -> str:
+        """以JSON格式输出数据，前端可直接解析json_data"""
+        data = {
+            "chatId": chat_id,
+            "conversationId": conversation_id,
+            "messageId": message_id,
+            "type": "json",
+            "data": json_data,
+            "complete": complete,
+            "finish": finish,
+            "status": 1,
+            "role": FeishuStreamOutput.DEFAULT_ROLE
+        }
+        if component_name:
+            data["componentName"] = component_name
+        if step_name:
+            data["stepName"] = step_name
+        if step_desc:
+            data["stepDesc"] = step_desc
+        return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+    
+    @staticmethod
     def format_table(chat_id: int, conversation_id: str, message_id: str,
                     columns: Dict, rows: List[Dict], complete: bool = False,
                     component_name: str = None, step_name: str = None, step_desc: str = None) -> str:
@@ -627,15 +651,10 @@ async def execute_task_stream(request: StreamExecuteRequest):
                         {"title": "附加值", "dataIndex": "additiveValue"}
                     ]
                     rows = result_list
-                    result_table_str = f"📊 **计算结果表** ({len(rows)}条)\n\n"
-                    result_table_str += "| " + " | ".join(c['title'] for c in columns) + " |\n"
-                    result_table_str += "|" + "|".join(["---"] * len(columns)) + "|\n"
-                    for row in rows:
-                        row_values = [str(row.get(c['dataIndex'], "-") or "-") for c in columns]
-                        result_table_str += "| " + " | ".join(row_values) + " |\n"
-                    yield FeishuStreamOutput.format_markdown(
+                    # 以JSON格式输出，前端可直接解析
+                    yield FeishuStreamOutput.format_json(
                         chat_id, conversation_id, str(uuid.uuid4()),
-                        result_table_str,
+                        {"columns": columns, "rows": rows, "count": len(rows)},
                         component_name="step-result-table-data",
                         step_name="结果读取",
                         step_desc="计算结果数据"
