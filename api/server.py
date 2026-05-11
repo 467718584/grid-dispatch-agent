@@ -627,11 +627,11 @@ async def execute_task_stream(request: StreamExecuteRequest):
                         {"title": "附加值", "dataIndex": "additiveValue"}
                     ]
                     rows = result_list
-                    result_table_str = f"📊 **计算结果表** ({len(rows)}条)\n"
+                    result_table_str = f"📊 **计算结果表** ({len(rows)}条)\n\n"
                     result_table_str += "| " + " | ".join(c['title'] for c in columns) + " |\n"
                     result_table_str += "|" + "|".join(["---"] * len(columns)) + "|\n"
                     for row in rows:
-                        row_values = [str(row.get(c['dataIndex'], "-")) for c in columns]
+                        row_values = [str(row.get(c['dataIndex'], "-") or "-") for c in columns]
                         result_table_str += "| " + " | ".join(row_values) + " |\n"
                     yield FeishuStreamOutput.format_markdown(
                         chat_id, conversation_id, str(uuid.uuid4()),
