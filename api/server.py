@@ -616,22 +616,25 @@ async def execute_task_stream(request: StreamExecuteRequest):
             
             # 步骤6.5: 结果表格输出
             if read_data_result.get("success"):
-                table_data = read_data_result.get("data", {})
-                result_columns = table_data.get("columns", [])
-                result_rows = table_data.get("dataResList", [])
-                if result_rows:
-                    result_table_str = "📊 **计算结果表**\n"
-                    result_table_str += "| " + " | ".join(str(c.get("title", c.get("dataIndex", ""))) for c in result_columns) + " |\n"
-                    result_table_str += "|" + "|".join(["---"] * len(result_columns)) + "|\n"
-                    for row in result_rows[:20]:
-                        row_values = []
-                        for col in result_columns:
-                            key = col.get("dataIndex", "")
-                            val = row.get(key, row.get(col.get("title", ""), "-"))
-                            row_values.append(str(val) if val is not None else "-")
+                result_list = read_data_result.get("data", {}).get("result", [])
+                if result_list:
+                    # common_readDat 返回的时间序列结构
+                    # 构建表格: id | time | value | additiveValue
+                    columns = [
+                        {"title": "库区ID", "dataIndex": "id"},
+                        {"title": "时间", "dataIndex": "time"},
+                        {"title": "数值", "dataIndex": "value"},
+                        {"title": "附加值", "dataIndex": "additiveValue"}
+                    ]
+                    rows = result_list
+                    result_table_str = f"📊 **计算结果表** ({len(rows)}条)\n"
+                    result_table_str += "| " + " | ".join(c['title'] for c in columns) + " |\n"
+                    result_table_str += "|" + "|".join(["---"] * len(columns)) + "|\n"
+                    for row in rows[:50]:
+                        row_values = [str(row.get(c['dataIndex'], "-")) for c in columns]
                         result_table_str += "| " + " | ".join(row_values) + " |\n"
-                    if len(result_rows) > 20:
-                        result_table_str += f"\n_...共 {len(result_rows)} 行，仅显示前20行_"
+                    if len(rows) > 50:
+                        result_table_str += f"\n_...共 {len(rows)} 条，仅显示前50条_"
                     yield FeishuStreamOutput.format_markdown(
                         chat_id, conversation_id, str(uuid.uuid4()),
                         result_table_str,
