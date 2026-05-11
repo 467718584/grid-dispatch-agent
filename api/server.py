@@ -471,11 +471,12 @@ async def execute_task_stream(request: StreamExecuteRequest):
                     if task_desc:
                         output_parts.append(f"📝 任务: {task_desc}")
                     
-                    # 展示计算结果表（Step 4.5新增）
+                    # 展示计算结果表（Step 4.6 result_table）
                     result_table_data = data.get("result_table", {})
                     if result_table_data.get("success"):
-                        result_columns = result_table_data.get("columns", [])
-                        result_rows = result_table_data.get("dataResList", [])
+                        table_data = result_table_data.get("data", {})
+                        result_columns = table_data.get("columns", [])
+                        result_rows = table_data.get("dataResList", [])
                         if result_rows:
                             # 构建表格
                             result_table_str = "\n📊 **计算结果表**\n"
@@ -493,6 +494,10 @@ async def execute_task_stream(request: StreamExecuteRequest):
                             if len(result_rows) > 20:
                                 result_table_str += f"\n_...共 {len(result_rows)} 行，仅显示前20行_"
                             output_parts.append(result_table_str)
+                        else:
+                            output_parts.append("\n📊 **计算结果表** (无数据)")
+                    elif result_table_data.get("warning"):
+                        output_parts.append(f"\n⚠️ {result_table_data.get('warning')}")
                     
                     # 展示发电计划数据（完整96时段）
                     if plan_data:
