@@ -176,15 +176,38 @@ class FloodControlSkill(BaseSkill):
         
         results["steps"].append("calculate")
         
-        # ========== Step 4.5: 获取计算结果表（新增） ==========
-        print("[FloodControl] Step 4.5: get_result_table...")
-        result_table = await self.executor.get_result_table()
-        results["result_table"] = result_table
+        # ========== Step 4.5: 获取库区ID列表 ==========
+        print("[FloodControl] Step 4.5: get_model_list...")
+        model_list_result = await self.executor.get_model_list()
+        results["model_list"] = model_list_result
         
-        if result_table.get("success"):
-            results["steps"].append("result_table")
+        if not model_list_result.get("success"):
+            results["warning"] = f"获取库区列表失败: {model_list_result.get('message')}，跳过结果表获取"
+            results["steps"].append("model_list")
         else:
-            results["warning"] = f"获取计算结果表失败: {result_table.get('message')}"
+            results["steps"].append("model_list")
+            
+            # 从tree字段中提取ID列表
+            tree_data = model_list_result.get("data", {}).get("tree", [])
+            rsvr_ids = [item.get("id") for item in tree_data if item.get("id")]
+            
+            if not rsvr_ids:
+                results["warning"] = "库区ID列表为空，跳过结果表获取"
+            else:
+                print(f"[FloodControl] Step 4.5: found {len(rsvr_ids)} reservoir IDs: {rsvr_ids}")
+                
+                # ========== Step 4.6: 获取计算结果表（使用库区ID） ==========
+                print("[FloodControl] Step 4.6: get_result_table...")
+                result_table = await self.executor.get_result_table(
+                    is_statistics=True,
+                    rsvr_ids=rsvr_ids
+                )
+                results["result_table"] = result_table
+                
+                if result_table.get("success"):
+                    results["steps"].append("result_table")
+                else:
+                    results["warning"] = f"获取计算结果表失败: {result_table.get('message')}"
         
         # ========== Step 5: 保存方案 ==========
         print("[FloodControl] Step 5: save_scheme...")

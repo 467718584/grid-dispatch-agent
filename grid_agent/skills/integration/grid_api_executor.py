@@ -279,6 +279,33 @@ class GridDispatchAPIExecutor:
     
     # ==================== 接口6: 获取计算结果表（Step4.5新增） ====================
     
+    async def get_model_list(
+        self,
+        type: int = 3,
+        user_name: str = None
+    ) -> Dict[str, Any]:
+        """
+        获取模型列表（库区ID）
+        
+        返回:
+        {
+            "success": bool,
+            "data": {"tree": [{"id": "xxx", ...}, ...]},  # 库区ID列表
+            ...
+        }
+        """
+        user_name = user_name or self._session_user or self.default_user
+        
+        payload = {
+            "flag": "common_modelList",
+            "queryParams": {
+                "userName": user_name,
+                "type": type
+            }
+        }
+        
+        return await self._call_api(payload)
+    
     async def get_result_table(
         self,
         type: int = 3,
@@ -286,7 +313,7 @@ class GridDispatchAPIExecutor:
         is_statistics: bool = False,
         is_pre: bool = False,
         header_with_station: bool = False,
-        rsvr_ids: Optional[List[int]] = None
+        rsvr_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         获取计算结果表接口
@@ -297,7 +324,7 @@ class GridDispatchAPIExecutor:
         - is_statistics: 是否需要统计值
         - is_pre: 是否需要历史值
         - header_with_station: 是否在表头添加站点
-        - rsvr_ids: 站点号，None时返回所有站点
+        - rsvr_ids: 库区ID列表，从get_model_list获取
         
         返回:
         {
@@ -314,7 +341,7 @@ class GridDispatchAPIExecutor:
             "isStatistics": is_statistics,
             "isPre": is_pre,
             "headerWitStation": header_with_station,
-            "rsvrIds": rsvr_ids
+            "rsvrIds": rsvr_ids  # 库区ID列表
         }]
         
         payload = {
