@@ -630,11 +630,9 @@ async def execute_task_stream(request: StreamExecuteRequest):
                     result_table_str = f"📊 **计算结果表** ({len(rows)}条)\n"
                     result_table_str += "| " + " | ".join(c['title'] for c in columns) + " |\n"
                     result_table_str += "|" + "|".join(["---"] * len(columns)) + "|\n"
-                    for row in rows[:50]:
+                    for row in rows:
                         row_values = [str(row.get(c['dataIndex'], "-")) for c in columns]
                         result_table_str += "| " + " | ".join(row_values) + " |\n"
-                    if len(rows) > 50:
-                        result_table_str += f"\n_...共 {len(rows)} 条，仅显示前50条_"
                     yield FeishuStreamOutput.format_markdown(
                         chat_id, conversation_id, str(uuid.uuid4()),
                         result_table_str,
