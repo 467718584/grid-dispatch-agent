@@ -576,6 +576,40 @@ async def execute_task_stream(request: StreamExecuteRequest):
             else:
                 result_table = {"success": False, "warning": "库区ID列表为空"}
             
+            # 输出计算结果表
+            if result_table.get("success"):
+                table_data = result_table.get("data", {})
+                result_columns = table_data.get("columns", [])
+                result_rows = table_data.get("dataResList", [])
+                if result_rows:
+                    result_table_str = "📊 **计算结果表**\n"
+                    result_table_str += "| " + " | ".join(str(c.get("title", c.get("dataIndex", ""))) for c in result_columns) + " |\n"
+                    result_table_str += "|" + "|".join(["---"] * len(result_columns)) + "|\n"
+                    for row in result_rows[:20]:
+                        row_values = []
+                        for col in result_columns:
+                            key = col.get("dataIndex", "")
+                            val = row.get(key, row.get(col.get("title", ""), "-"))
+                            row_values.append(str(val) if val is not None else "-")
+                        result_table_str += "| " + " | ".join(row_values) + " |\n"
+                    if len(result_rows) > 20:
+                        result_table_str += f"\n_...共 {len(result_rows)} 行，仅显示前20行_"
+                    yield FeishuStreamOutput.format_markdown(
+                        chat_id, conversation_id, str(uuid.uuid4()),
+                        result_table_str,
+                        component_name="step-result-table-data",
+                        step_name="结果读取",
+                        step_desc="计算结果数据"
+                    )
+                else:
+                    yield FeishuStreamOutput.format_markdown(
+                        chat_id, conversation_id, str(uuid.uuid4()),
+                        "📊 **计算结果表** (无数据)",
+                        component_name="step-result-table-data",
+                        step_name="结果读取",
+                        step_desc="暂无数据"
+                    )
+            
             # 步骤6: 发布方案
             step = "save_scheme"
             info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
