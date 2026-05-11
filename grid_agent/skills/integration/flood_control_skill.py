@@ -187,12 +187,30 @@ class FloodControlSkill(BaseSkill):
         else:
             results["steps"].append("model_list")
             
-            # 从tree字段中提取ID列表
-            tree_data = model_list_result.get("data", {}).get("tree", [])
-            rsvr_ids = [item.get("id") for item in tree_data if item.get("id")]
+            # 从tree字段中提取ID列表（支持嵌套树结构）
+            raw_tree = model_list_result.get("data", {}).get("result", {}).get("tree", [])
+            
+            def extract_leaf_ids(tree_list):
+                """递归提取所有叶子节点的ID（objType=3的库区）"""
+                ids = []
+                for item in tree_list:
+                    obj_type = item.get("objType")
+                    item_id = item.get("id")
+                    children = item.get("children", [])
+                    
+                    if obj_type == 3 and item_id:
+                        # 库区级别，直接提取ID
+                        ids.append(item_id)
+                    elif children:
+                        # 还有子节点，继续递归
+                        ids.extend(extract_leaf_ids(children))
+                return ids
+            
+            rsvr_ids = extract_leaf_ids(raw_tree)
             
             if not rsvr_ids:
                 results["warning"] = "库区ID列表为空，跳过结果表获取"
+                print(f"[FloodControl] Step 4.5: tree data = {raw_tree[:200]}...")  # 调试用
             else:
                 print(f"[FloodControl] Step 4.5: found {len(rsvr_ids)} reservoir IDs: {rsvr_ids}")
                 
