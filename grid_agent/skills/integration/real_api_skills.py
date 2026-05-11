@@ -10,10 +10,13 @@ Real API Skills - 真实API集成Skills (增强版)
 3. PublishSchemeRealSkill - 发布调度方案
 4. ModifyConstraintRealSkill - 修改约束条件
 """
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime
 from ...skill.base import BaseSkill
-from .grid_api_executor import GridDispatchAPIExecutor, LLMParameterFiller
+from .grid_api_executor import GridDispatchAPIExecutor, LLMParameterFiller, DEFAULT_API_BASE
+
+DEFAULT_LLM_URL = os.getenv("LLM_URL", "DEFAULT_LLM_URL")
 
 
 class DataFetchRealSkill(BaseSkill):
@@ -26,7 +29,7 @@ class DataFetchRealSkill(BaseSkill):
     """
     
     def __init__(self, api_base_url: str = None):
-        self.api_base = api_base_url or "http://196.167.30.65:30002/dispatch/commonData"
+        self.api_base = api_base_url or "DEFAULT_API_BASE"
         self.executor = GridDispatchAPIExecutor(self.api_base)
     
     @property
@@ -131,7 +134,7 @@ class CalcDispatchRealSkill(BaseSkill):
     """
     
     def __init__(self, api_base_url: str = None):
-        self.api_base = api_base_url or "http://196.167.30.65:30002/dispatch/commonData"
+        self.api_base = api_base_url or "DEFAULT_API_BASE"
         self.executor = GridDispatchAPIExecutor(self.api_base)
     
     @property
@@ -188,7 +191,7 @@ class PublishSchemeRealSkill(BaseSkill):
     """
     
     def __init__(self, api_base_url: str = None):
-        self.api_base = api_base_url or "http://196.167.30.65:30002/dispatch/commonData"
+        self.api_base = api_base_url or "DEFAULT_API_BASE"
         self.executor = GridDispatchAPIExecutor(self.api_base)
     
     @property
@@ -269,7 +272,7 @@ class ModifyConstraintRealSkill(BaseSkill):
     """
     
     def __init__(self, api_base_url: str = None):
-        self.api_base = api_base_url or "http://196.167.30.65:30002/dispatch/commonData"
+        self.api_base = api_base_url or "DEFAULT_API_BASE"
         self.executor = GridDispatchAPIExecutor(self.api_base)
     
     @property
@@ -367,8 +370,8 @@ class LLMGuidedRealSkill(BaseSkill):
     """
     
     def __init__(self, api_base_url: str = None, llm_url: str = None, llm_api_key: str = None):
-        self.api_base = api_base_url or "http://196.167.30.65:30002/dispatch/commonData"
-        self.llm_url = llm_url or "http://196.167.30.204:8765/v1"
+        self.api_base = api_base_url or "DEFAULT_API_BASE"
+        self.llm_url = llm_url or "DEFAULT_LLM_URL"
         self.llm_api_key = llm_api_key
         self.executor = GridDispatchAPIExecutor(self.api_base)
         self.filler = LLMParameterFiller(self.llm_url, self.llm_api_key)

@@ -18,20 +18,29 @@ import requests
 import json
 
 
+import os
+
+# 默认配置（可被实例参数覆盖）
+DEFAULT_API_BASE = os.getenv("GRID_API_BASE", "http://196.167.30.65:30002/dispatch/commonData")
+DEFAULT_USER = os.getenv("GRID_API_USER", "66605384.475033835")
+
+
 class GridDispatchAPIExecutor:
     """
     电网调度API执行器
     
     功能:
-    - 5个接口完整参数暴露
+    - 6个接口完整参数暴露
     - LLM自动填补缺失参数
     - 参数校验和类型转换
     - 错误处理和重试
+    - init后自动保存session用户名，后续调用复用
     """
     
-    def __init__(self, api_base_url: str = "http://196.167.30.65:30002/dispatch/commonData"):
-        self.api_base_url = api_base_url
-        self.default_user = "66605384.475033835"
+    def __init__(self, api_base_url: str = None):
+        self.api_base_url = api_base_url or DEFAULT_API_BASE
+        self.default_user = DEFAULT_USER
+        self._session_user: Optional[str] = None  # init后保存的用户名
     
     # ==================== 接口1: 读取约束 ====================
     
@@ -68,7 +77,7 @@ class GridDispatchAPIExecutor:
             "dataResList": [...] # 数据结果
         }
         """
-        user_name = user_name or self.default_user
+        user_name = user_name or self._session_user or self.default_user
         
         if table_keys is None:
             table_keys = [
@@ -118,7 +127,7 @@ class GridDispatchAPIExecutor:
         返回:
         {"success": true, "meta": {"code": 200, "msg": "success"}}
         """
-        user_name = user_name or self.default_user
+        user_name = user_name or self._session_user or self.default_user
         
         payload = {
             "flag": "common_modifySetting",
@@ -148,7 +157,7 @@ class GridDispatchAPIExecutor:
         返回:
         {"success": true, "data": {}, "meta": {"code": 200, "msg": "success"}}
         """
-        user_name = user_name or self.default_user
+        user_name = user_name or self._session_user or self.default_user
         
         payload = {
             "flag": "common_calculate",
@@ -160,6 +169,38 @@ class GridDispatchAPIExecutor:
         
         return await self._call_api(payload)
     
+    # ==================== 接口3.5: 初始化 ====================
+    
+    async def init(
+        self,
+        type: int = 3,
+        user_name: str = None
+    ) -> Dict[str, Any]:
+        """
+        初始化接口
+        
+        参数说明:
+        - type: 功能类型，默认3（短期发电计划）
+        - user_name: 用户名
+        
+        返回:
+        {"success": true, "data": {}, "meta": {"code": 200, "msg": "success"}}
+        
+        注意: init成功后会自动保存user_name到_session_user，后续API调用复用此用户名
+        """
+        user_name = user_name or self.default_user
+        self._session_user = user_name  # 保存用户名到session
+        
+        payload = {
+            "flag": "common_init",
+            "queryParams": {
+                "type": type,
+                "userName": user_name
+            }
+        }
+        
+        return await self._call_api(payload)
+
     # ==================== 接口4: 发布计划 ====================
     
     async def save_scheme(
@@ -183,7 +224,7 @@ class GridDispatchAPIExecutor:
         返回:
         {"success": true, "data": {}, "meta": {"code": 200, "msg": "success"}}
         """
-        user_name = user_name or self.default_user
+        user_name = user_name or self._session_user or self.default_user
         
         payload = {
             "flag": "common_saveScheme",
@@ -221,7 +262,7 @@ class GridDispatchAPIExecutor:
         返回:
         {"success": true, "data": {"result": [...]}, "meta": {"code": 200}}
         """
-        user_name = user_name or self.default_user
+        user_name = user_name or self._session_user or self.default_user
         
         payload = {
             "flag": "common_getPlan",
@@ -236,10 +277,67 @@ class GridDispatchAPIExecutor:
         
         return await self._call_api(payload)
     
+    # ==================== 接口6: 获取计算结果表（Step4.5新增） ====================
+    
+    async def get_result_table(
+        self,
+        type: int = 3,
+        user_name: str = None,
+        is_statistics: bool = False,
+        is_pre: bool = False,
+        header_with_station: bool = False,
+        rsvr_ids: Optional[List[int]] = None
+    ) -> Dict[str, Any]:
+        """
+        获取计算结果表接口
+        
+        参数说明:
+        - type: 功能类型，短期发电计划为3
+        - user_name: 用户名
+        - is_statistics: 是否需要统计值
+        - is_pre: 是否需要历史值
+        - header_with_station: 是否在表头添加站点
+        - rsvr_ids: 站点号，None时返回所有站点
+        
+        返回:
+        {
+            "success": bool,
+            "data": {...},  # 计算结果数据
+            "columns": [...],  # 数据列
+            "dataResList": [...] # 数据结果
+        }
+        """
+        user_name = user_name or self._session_user or self.default_user
+        
+        table_parameter = [{
+            "tableKeys": "common.Result.Table",  # 计算结果表key
+            "isStatistics": is_statistics,
+            "isPre": is_pre,
+            "headerWitStation": header_with_station,
+            "rsvrIds": rsvr_ids
+        }]
+        
+        payload = {
+            "flag": "common_getTableData",
+            "queryParams": {
+                "type": type,
+                "userName": user_name,
+                "tableParameter": table_parameter
+            }
+        }
+        
+        return await self._call_api(payload)
+    
     # ==================== 内部方法 ====================
     
     async def _call_api(self, payload: Dict) -> Dict[str, Any]:
-        """内部API调用方法"""
+        """内部API调用方法（带详细日志）"""
+        flag = payload.get("flag", "unknown")
+        query_params = payload.get("queryParams", {})
+        
+        print(f"[API Request] flag={flag}")
+        print(f"[API Request] queryParams={query_params}")
+        
         try:
             response = requests.post(
                 self.api_base_url,
@@ -252,6 +350,8 @@ class GridDispatchAPIExecutor:
             code = result.get("meta", {}).get("code", 0)
             msg = result.get("meta", {}).get("msg", "")
             
+            print(f"[API Response] flag={flag} -> success={success}, code={code}")
+            
             return {
                 "success": success,
                 "code": code,
@@ -260,6 +360,7 @@ class GridDispatchAPIExecutor:
                 "raw_response": result
             }
         except requests.exceptions.Timeout:
+            print(f"[API Response] flag={flag} -> TIMEOUT")
             return {
                 "success": False,
                 "code": -1,
@@ -267,6 +368,7 @@ class GridDispatchAPIExecutor:
                 "error": "timeout"
             }
         except Exception as e:
+            print(f"[API Response] flag={flag} -> ERROR: {str(e)}")
             return {
                 "success": False,
                 "code": -2,
@@ -280,6 +382,7 @@ class GridDispatchAPIExecutor:
             "api_base_url": self.api_base_url,
             "default_user": self.default_user,
             "available_interfaces": [
+                {"name": "init", "description": "系统初始化", "flag": "common_init"},
                 {"name": "get_constraint", "description": "读取约束数据", "flag": "common_getTableData"},
                 {"name": "modify_constraint", "description": "修改约束条件", "flag": "common_modifySetting"},
                 {"name": "calculate", "description": "执行调度计算", "flag": "common_calculate"},

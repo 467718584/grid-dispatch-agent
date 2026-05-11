@@ -41,18 +41,22 @@ from grid_agent.skills.integration import (
     PublishSchemeRealSkill,
     ModifyConstraintRealSkill,
     LLMGuidedRealSkill,
-    GridDispatchAPIExecutor
+    GridDispatchAPIExecutor,
+    FloodControlSkill
 )
+from api.flood_api import router as flood_router
 
 # ============== 配置 ==============
 
-# LLM配置
-LLM_URL = "http://196.167.30.204:8765/v1"
-LLM_API_KEY = None  # 如需要可设置
+import os
 
-# 电网API配置
-GRID_API_BASE = "http://196.167.30.65:30002/dispatch/commonData"
-GRID_API_USER = "66605384.475033835"
+# LLM配置（可从环境变量覆盖）
+LLM_URL = os.getenv("LLM_URL", "http://196.167.30.204:8765/v1")
+LLM_API_KEY = os.getenv("LLM_API_KEY")  # 如需要可设置
+
+# 电网API配置（可从环境变量覆盖）
+GRID_API_BASE = os.getenv("GRID_API_BASE", "http://196.167.30.65:30002/dispatch/commonData")
+GRID_API_USER = os.getenv("GRID_API_USER", "66605384.475033835")
 
 # ============== 日志 ==============
 
@@ -76,6 +80,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册防洪方案路由
+app.include_router(flood_router)
 
 # ============== Pydantic Models ==============
 
@@ -251,10 +258,18 @@ class AgentManager:
                 llm_url=llm_url,
                 llm_api_key=llm_api_key
             ))
+            # 注册完整的FloodControlSkill（包含init/get_constraint/get_plan/calculate/save_scheme全流程）
+            cls._agent.register_skill(FloodControlSkill(
+                api_base_url=GRID_API_BASE,
+                llm_url=llm_url,
+                llm_api_key=llm_api_key
+            ))
             logger.info(f"[AgentManager] 真实API已启用，电网API: {GRID_API_BASE}")
-        
-        # 默认flow - 模拟API版本
-        cls._agent.set_flow(["data_fetch", "calc_reserve", "expert_infer", "output_json"])
+            # 默认flow使用flood_control（全流程）
+            cls._agent.set_flow(["flood_control"])
+        else:
+            # 默认flow - 模拟API版本
+            cls._agent.set_flow(["data_fetch", "calc_reserve", "expert_infer", "output_json"])
         
         cls._initialized = True
         logger.info(f"[AgentManager] Agent初始化完成，使用真实API: {use_real_api}")
@@ -348,9 +363,9 @@ async def execute_task(request: ExecuteRequest):
         # 确定flow
         if request.flow:
             flow = request.flow
-        elif request.use_real_api or AgentManager.is_real_api_enabled():
-            # 真实API流程
-            flow = ["data_fetch_real", "calc_dispatch_real", "publish_scheme_real"]
+        elif AgentManager.is_real_api_enabled():
+            # 使用完整的FloodControlSkill（全流程：init->get_constraint->get_plan->calculate->save_scheme）
+            flow = ["flood_control"]
         else:
             flow = agent.flow_engine._default_flow
         
@@ -403,8 +418,9 @@ async def execute_task_stream(request: StreamExecuteRequest):
     # 确定flow
     if request.flow:
         flow = request.flow
-    elif request.use_real_api or AgentManager.is_real_api_enabled():
-        flow = ["data_fetch_real", "calc_dispatch_real", "publish_scheme_real"]
+    elif AgentManager.is_real_api_enabled():
+        # 使用完整的FloodControlSkill（全流程：init->get_constraint->calculate->result_table->save_scheme）
+        flow = ["flood_control"]
     else:
         flow = agent.flow_engine._default_flow
     
@@ -416,7 +432,16 @@ async def execute_task_stream(request: StreamExecuteRequest):
             result = await agent.execute(task=request.task, params=request.params, flow=flow)
             
             if result.get("status") == "success":
-                data = result.get("data", {})
+                # FloodControlSkill返回扁平结构，需要特殊处理
+                raw_data = result.get("data", {})
+                
+                # FloodControlSkill结果在 results.flood_control 里
+                skill_result = raw_data.get("results", {}).get("flood_control", {})
+                
+                if skill_result:  # 如果有skill结果，用它
+                    data = skill_result
+                else:  # 否则用raw_data
+                    data = raw_data
                 
                 if "table_data" in data:
                     table_data = data["table_data"]
@@ -427,10 +452,69 @@ async def execute_task_stream(request: StreamExecuteRequest):
                         complete=True
                     )
                 else:
-                    summary = data.get("summary", "任务完成")
+                    # FloodControlSkill输出格式
+                    steps = data.get("steps", [])
+                    scheme_name = data.get("scheme_name")
+                    task_desc = data.get("task", "")
+                    
+                    # 发电计划数据展示
+                    get_plan_result = data.get("get_plan", {})
+                    plan_data = get_plan_result.get("data", {}).get("result", [])
+                    
+                    output_parts = []
+                    
+                    if scheme_name:
+                        output_parts.append(f"✅ 方案已生成: **{scheme_name}**")
+                    
+                    output_parts.append(f"📋 执行步骤: {', '.join(steps)}")
+                    
+                    if task_desc:
+                        output_parts.append(f"📝 任务: {task_desc}")
+                    
+                    # 展示计算结果表（Step 4.5新增）
+                    result_table_data = data.get("result_table", {})
+                    if result_table_data.get("success"):
+                        result_columns = result_table_data.get("columns", [])
+                        result_rows = result_table_data.get("dataResList", [])
+                        if result_rows:
+                            # 构建表格
+                            result_table_str = "\n📊 **计算结果表**\n"
+                            # 表头
+                            result_table_str += "| " + " | ".join(str(c.get("title", c.get("dataIndex", ""))) for c in result_columns) + " |\n"
+                            result_table_str += "|" + "|".join(["---"] * len(result_columns)) + "|\n"
+                            # 数据行（最多显示20行）
+                            for row in result_rows[:20]:
+                                row_values = []
+                                for col in result_columns:
+                                    key = col.get("dataIndex", "")
+                                    val = row.get(key, row.get(col.get("title", ""), "-"))
+                                    row_values.append(str(val) if val is not None else "-")
+                                result_table_str += "| " + " | ".join(row_values) + " |\n"
+                            if len(result_rows) > 20:
+                                result_table_str += f"\n_...共 {len(result_rows)} 行，仅显示前20行_"
+                            output_parts.append(result_table_str)
+                    
+                    # 展示发电计划数据（完整96时段）
+                    if plan_data:
+                        output_parts.append(f"\n📊 **发电计划数据** ({len(plan_data)} 个时段)")
+                        # 展示完整96个时段表格
+                        plan_table = "| 时段 | V0 | V1 | V2 | V3 | V4 |\n"
+                        plan_table += "|---|---|---|---|---|---|\n"
+                        for i, period in enumerate(plan_data):
+                            v0 = period.get("v0", "-")
+                            v1 = period.get("v1", "-")
+                            v2 = period.get("v2", "-")
+                            v3 = period.get("v3", "-")
+                            v4 = period.get("v4", "-")
+                            plan_table += f"| {i} | {v0} | {v1} | {v2} | {v3} | {v4} |\n"
+                        
+                        output_parts.append(plan_table)
+                    
+                    summary = "\n\n".join(output_parts)
+                    
                     yield FeishuStreamOutput.format_markdown(
                         chat_id, conversation_id, message_id,
-                        f"✅ 任务完成\n\n{summary}",
+                        summary,
                         complete=True
                     )
                 
