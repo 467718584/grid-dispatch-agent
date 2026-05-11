@@ -134,9 +134,22 @@ class FeishuStreamOutput:
         "avatar": "/assets/agent/grid-agent.png"
     }
     
+    # 步骤中英文映射
+    STEP_MAPPING = {
+        "init": {"name": "初始化", "desc": "正在连接电网系统...", "component": "step-init"},
+        "get_constraint": {"name": "读取约束", "desc": "正在读取发电调度约束数据...", "component": "step-constraint"},
+        "calculate": {"name": "调度计算", "desc": "正在进行防洪调度优化计算...", "component": "step-calculate"},
+        "model_list": {"name": "库区查询", "desc": "正在获取流域库区列表...", "component": "step-model-list"},
+        "result_table": {"name": "结果读取", "desc": "正在读取计算结果数据...", "component": "step-result"},
+        "save_scheme": {"name": "发布方案", "desc": "正在保存并发布调度方案...", "component": "step-save"},
+        "get_plan": {"name": "计划读取", "desc": "正在读取电网下达计划...", "component": "step-plan"},
+        "modify_constraint": {"name": "修改约束", "desc": "正在调整约束参数...", "component": "step-modify"},
+    }
+    
     @staticmethod
     def format_text(chat_id: int, conversation_id: str, message_id: str,
-                   content: str, complete: bool = False, finish: bool = False) -> str:
+                   content: str, complete: bool = False, finish: bool = False,
+                   component_name: str = None, step_name: str = None, step_desc: str = None) -> str:
         data = {
             "chatId": chat_id,
             "conversationId": conversation_id,
@@ -145,14 +158,21 @@ class FeishuStreamOutput:
             "content": content,
             "complete": complete,
             "finish": finish,
-            "status": 1,
+            "status": 2 if (not complete and not finish) else 1,  # 2=加载中
             "role": FeishuStreamOutput.DEFAULT_ROLE
         }
+        if component_name:
+            data["componentName"] = component_name
+        if step_name:
+            data["stepName"] = step_name
+        if step_desc:
+            data["stepDesc"] = step_desc
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     
     @staticmethod
     def format_markdown(chat_id: int, conversation_id: str, message_id: str,
-                       content: str, complete: bool = False, finish: bool = False) -> str:
+                       content: str, complete: bool = False, finish: bool = False,
+                       component_name: str = None, step_name: str = None, step_desc: str = None) -> str:
         data = {
             "chatId": chat_id,
             "conversationId": conversation_id,
@@ -164,11 +184,18 @@ class FeishuStreamOutput:
             "status": 1,
             "role": FeishuStreamOutput.DEFAULT_ROLE
         }
+        if component_name:
+            data["componentName"] = component_name
+        if step_name:
+            data["stepName"] = step_name
+        if step_desc:
+            data["stepDesc"] = step_desc
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     
     @staticmethod
     def format_table(chat_id: int, conversation_id: str, message_id: str,
-                    columns: Dict, rows: List[Dict], complete: bool = False) -> str:
+                    columns: Dict, rows: List[Dict], complete: bool = False,
+                    component_name: str = None, step_name: str = None, step_desc: str = None) -> str:
         content = json.dumps({"columns": columns, "rows": rows}, ensure_ascii=False)
         data = {
             "chatId": chat_id,
@@ -181,10 +208,17 @@ class FeishuStreamOutput:
             "status": 1,
             "role": FeishuStreamOutput.DEFAULT_ROLE
         }
+        if component_name:
+            data["componentName"] = component_name
+        if step_name:
+            data["stepName"] = step_name
+        if step_desc:
+            data["stepDesc"] = step_desc
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     
     @staticmethod
-    def format_error(chat_id: int, conversation_id: str, message_id: str, error_msg: str) -> str:
+    def format_error(chat_id: int, conversation_id: str, message_id: str, error_msg: str,
+                     component_name: str = None) -> str:
         data = {
             "chatId": chat_id,
             "conversationId": conversation_id,
@@ -196,10 +230,13 @@ class FeishuStreamOutput:
             "status": -1,
             "role": FeishuStreamOutput.DEFAULT_ROLE
         }
+        if component_name:
+            data["componentName"] = component_name
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     
     @staticmethod
-    def format_finish(chat_id: int, conversation_id: str, message_id: str) -> str:
+    def format_finish(chat_id: int, conversation_id: str, message_id: str,
+                      component_name: str = "final") -> str:
         data = {
             "chatId": chat_id,
             "conversationId": conversation_id,
@@ -209,7 +246,8 @@ class FeishuStreamOutput:
             "complete": True,
             "finish": True,
             "status": 1,
-            "role": FeishuStreamOutput.DEFAULT_ROLE
+            "role": FeishuStreamOutput.DEFAULT_ROLE,
+            "componentName": component_name
         }
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -426,121 +464,155 @@ async def execute_task_stream(request: StreamExecuteRequest):
     
     async def generate():
         try:
-            yield FeishuStreamOutput.format_text(chat_id, conversation_id, message_id, "🔄 正在分析任务...")
-            await asyncio.sleep(0.5)
+            # 每个步骤单独输出：带componentName、stepName、stepDesc
+            STEP_DEFS = {
+                "init": {"name": "系统初始化", "desc": "正在连接电网调度系统...", "icon": "🔗"},
+                "get_constraint": {"name": "读取约束", "desc": "正在读取发电调度约束数据...", "icon": "📋"},
+                "calculate": {"name": "调度计算", "desc": "正在进行防洪优化计算，请稍候...", "icon": "⚡"},
+                "model_list": {"name": "库区查询", "desc": "正在获取流域库区列表...", "icon": "🗺️"},
+                "result_table": {"name": "结果读取", "desc": "正在读取计算结果数据...", "icon": "📊"},
+                "save_scheme": {"name": "发布方案", "desc": "正在保存并发布调度方案...", "icon": "💾"},
+            }
             
-            result = await agent.execute(task=request.task, params=request.params, flow=flow)
+            # 步骤1: 初始化
+            step = "init"
+            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                f"{info['icon']} **{info['name']}**\n{info['desc']}",
+                component_name=f"step-{step}",
+                step_name=info['name'],
+                step_desc=info['desc']
+            )
+            await asyncio.sleep(0.3)
             
-            if result.get("status") == "success":
-                # FloodControlSkill返回扁平结构，需要特殊处理
-                raw_data = result.get("data", {})
-                
-                # FloodControlSkill结果在 results.flood_control 里
-                skill_result = raw_data.get("results", {}).get("flood_control", {})
-                
-                if skill_result:  # 如果有skill结果，用它
-                    data = skill_result
-                else:  # 否则用raw_data
-                    data = raw_data
-                
-                if "table_data" in data:
-                    table_data = data["table_data"]
-                    yield FeishuStreamOutput.format_table(
-                        chat_id, conversation_id, message_id,
-                        table_data.get("columns", {}),
-                        table_data.get("rows", []),
-                        complete=True
-                    )
-                else:
-                    # FloodControlSkill输出格式
-                    steps = data.get("steps", [])
-                    scheme_name = data.get("scheme_name")
-                    task_desc = data.get("task", "")
-                    
-                    # 发电计划数据展示
-                    get_plan_result = data.get("get_plan", {})
-                    plan_data = get_plan_result.get("data", {}).get("result", [])
-                    
-                    output_parts = []
-                    
-                    if scheme_name:
-                        output_parts.append(f"✅ 方案已生成: **{scheme_name}**")
-                    
-                    output_parts.append(f"📋 执行步骤: {', '.join(steps)}")
-                    
-                    if task_desc:
-                        output_parts.append(f"📝 任务: {task_desc}")
-                    
-                    # 展示计算结果表（Step 4.6 result_table）
-                    result_table_data = data.get("result_table", {})
-                    if result_table_data.get("success"):
-                        table_data = result_table_data.get("data", {})
-                        result_columns = table_data.get("columns", [])
-                        result_rows = table_data.get("dataResList", [])
-                        if result_rows:
-                            # 构建表格
-                            result_table_str = "\n📊 **计算结果表**\n"
-                            # 表头
-                            result_table_str += "| " + " | ".join(str(c.get("title", c.get("dataIndex", ""))) for c in result_columns) + " |\n"
-                            result_table_str += "|" + "|".join(["---"] * len(result_columns)) + "|\n"
-                            # 数据行（最多显示20行）
-                            for row in result_rows[:20]:
-                                row_values = []
-                                for col in result_columns:
-                                    key = col.get("dataIndex", "")
-                                    val = row.get(key, row.get(col.get("title", ""), "-"))
-                                    row_values.append(str(val) if val is not None else "-")
-                                result_table_str += "| " + " | ".join(row_values) + " |\n"
-                            if len(result_rows) > 20:
-                                result_table_str += f"\n_...共 {len(result_rows)} 行，仅显示前20行_"
-                            output_parts.append(result_table_str)
-                        else:
-                            output_parts.append("\n📊 **计算结果表** (无数据)")
-                    elif result_table_data.get("warning"):
-                        output_parts.append(f"\n⚠️ {result_table_data.get('warning')}")
-                    
-                    # 展示发电计划数据（完整96时段）
-                    if plan_data:
-                        output_parts.append(f"\n📊 **发电计划数据** ({len(plan_data)} 个时段)")
-                        # 展示完整96个时段表格
-                        plan_table = "| 时段 | V0 | V1 | V2 | V3 | V4 |\n"
-                        plan_table += "|---|---|---|---|---|---|\n"
-                        for i, period in enumerate(plan_data):
-                            v0 = period.get("v0", "-")
-                            v1 = period.get("v1", "-")
-                            v2 = period.get("v2", "-")
-                            v3 = period.get("v3", "-")
-                            v4 = period.get("v4", "-")
-                            plan_table += f"| {i} | {v0} | {v1} | {v2} | {v3} | {v4} |\n"
-                        
-                        output_parts.append(plan_table)
-                    
-                    summary = "\n\n".join(output_parts)
-                    
-                    yield FeishuStreamOutput.format_markdown(
-                        chat_id, conversation_id, message_id,
-                        summary,
-                        complete=True
-                    )
-                
-                if "alerts" in data and data["alerts"]:
-                    alerts = "\n".join([f"- {a}" for a in data["alerts"]])
-                    yield FeishuStreamOutput.format_markdown(
-                        chat_id, conversation_id, str(uuid.uuid4()),
-                        f"⚠️ 预警信息:\n{alerts}",
-                        complete=True
-                    )
+            init_result = await agent.executor.init(user_name="66605384.475033835")
+            if not init_result.get("success"):
+                yield FeishuStreamOutput.format_error(chat_id, conversation_id, msg_id, f"初始化失败: {init_result.get('message')}")
+                yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+                return
+            
+            # 步骤2: 读取约束
+            step = "get_constraint"
+            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                f"{info['icon']} **{info['name']}**\n{info['desc']}",
+                component_name=f"step-{step}",
+                step_name=info['name'],
+                step_desc=info['desc']
+            )
+            await asyncio.sleep(0.3)
+            
+            constraint_result = await agent.executor.get_constraint()
+            
+            # 步骤3: 调度计算
+            step = "calculate"
+            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                f"{info['icon']} **{info['name']}**\n{info['desc']}",
+                component_name=f"step-{step}",
+                step_name=info['name'],
+                step_desc=info['desc']
+            )
+            await asyncio.sleep(0.3)
+            
+            calculate_result = await agent.executor.calculate()
+            if not calculate_result.get("success"):
+                yield FeishuStreamOutput.format_error(chat_id, conversation_id, msg_id, f"计算失败: {calculate_result.get('message')}")
+                yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+                return
+            
+            # 步骤4: 库区查询
+            step = "model_list"
+            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                f"{info['icon']} **{info['name']}**\n{info['desc']}",
+                component_name=f"step-{step}",
+                step_name=info['name'],
+                step_desc=info['desc']
+            )
+            await asyncio.sleep(0.3)
+            
+            model_list_result = await agent.executor.get_model_list()
+            
+            # 提取库区ID
+            tree_data = model_list_result.get("data", {}).get("result", {}).get("tree", [])
+            def extract_leaf_ids(tree_list):
+                ids = []
+                for item in tree_list:
+                    obj_type = item.get("objType")
+                    item_id = item.get("id")
+                    children = item.get("children", [])
+                    if obj_type == 3 and item_id:
+                        ids.append(item_id)
+                    elif children:
+                        ids.extend(extract_leaf_ids(children))
+                return ids
+            
+            rsvr_ids = extract_leaf_ids(tree_data)
+            
+            # 步骤5: 结果读取
+            step = "result_table"
+            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                f"{info['icon']} **{info['name']}**\n{info['desc']}",
+                component_name=f"step-{step}",
+                step_name=info['name'],
+                step_desc=info['desc']
+            )
+            await asyncio.sleep(0.3)
+            
+            if rsvr_ids:
+                result_table = await agent.executor.get_result_table(is_statistics=True, rsvr_ids=rsvr_ids)
             else:
-                yield FeishuStreamOutput.format_error(
-                    chat_id, conversation_id, message_id,
-                    result.get("error", "未知错误")
-                )
+                result_table = {"success": False, "warning": "库区ID列表为空"}
+            
+            # 步骤6: 发布方案
+            step = "save_scheme"
+            info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                f"{info['icon']} **{info['name']}**\n{info['desc']}",
+                component_name=f"step-{step}",
+                step_name=info['name'],
+                step_desc=info['desc']
+            )
+            await asyncio.sleep(0.3)
+            
+            now = datetime.now()
+            scheme_name = f"调度方案_{now.strftime('%Y%m%d%H%M')}"
+            save_result = await agent.executor.save_scheme(
+                scheme_name=scheme_name,
+                description=f"任务: {request.task}",
+                cover=True,
+                type=3
+            )
+            
+            # 最终汇总输出
+            yield FeishuStreamOutput.format_markdown(
+                chat_id, conversation_id, str(uuid.uuid4()),
+                f"✅ **{scheme_name}** 已发布！\n\n"
+                f"📋 执行步骤: 系统初始化 → 读取约束 → 调度计算 → 库区查询 → 结果读取 → 发布方案\n\n"
+                f"📝 任务: {request.task}",
+                complete=True,
+                component_name="final-result"
+            )
             
             yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
             
         except Exception as e:
             logger.error(f"[Stream] Error: {e}")
-            yield FeishuStreamOutput.format_error(chat_id, conversation_id, message_id, str(e))
+            yield FeishuStreamOutput.format_error(chat_id, conversation_id, str(uuid.uuid4()), str(e))
             yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
     
     return StreamingResponse(generate(), media_type="text/event-stream")
