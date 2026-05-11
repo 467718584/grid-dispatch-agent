@@ -474,6 +474,14 @@ async def execute_task_stream(request: StreamExecuteRequest):
                 "save_scheme": {"name": "发布方案", "desc": "正在保存并发布调度方案...", "icon": "💾"},
             }
             
+            # 从flood_control skill获取executor
+            flood_skill = agent.skill_registry.get("flood_control")
+            executor = flood_skill.executor if flood_skill else None
+            if not executor:
+                yield FeishuStreamOutput.format_error(chat_id, conversation_id, str(uuid.uuid4()), "flood_control skill未加载")
+                yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+                return
+            
             # 步骤1: 初始化
             step = "init"
             info = STEP_DEFS.get(step, {"name": step, "desc": "", "icon": "⏳"})
@@ -487,7 +495,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             )
             await asyncio.sleep(0.3)
             
-            init_result = await agent.executor.init(user_name="66605384.475033835")
+            init_result = await executor.init(user_name="66605384.475033835")
             if not init_result.get("success"):
                 yield FeishuStreamOutput.format_error(chat_id, conversation_id, msg_id, f"初始化失败: {init_result.get('message')}")
                 yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
@@ -506,7 +514,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             )
             await asyncio.sleep(0.3)
             
-            constraint_result = await agent.executor.get_constraint()
+            constraint_result = await executor.get_constraint()
             
             # 步骤3: 调度计算
             step = "calculate"
@@ -521,7 +529,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             )
             await asyncio.sleep(0.3)
             
-            calculate_result = await agent.executor.calculate()
+            calculate_result = await executor.calculate()
             if not calculate_result.get("success"):
                 yield FeishuStreamOutput.format_error(chat_id, conversation_id, msg_id, f"计算失败: {calculate_result.get('message')}")
                 yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
@@ -540,7 +548,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             )
             await asyncio.sleep(0.3)
             
-            model_list_result = await agent.executor.get_model_list()
+            model_list_result = await executor.get_model_list()
             
             # 提取库区ID
             tree_data = model_list_result.get("data", {}).get("result", {}).get("tree", [])
@@ -572,7 +580,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             await asyncio.sleep(0.3)
             
             if rsvr_ids:
-                result_table = await agent.executor.get_result_table(is_statistics=True, rsvr_ids=rsvr_ids)
+                result_table = await executor.get_result_table(is_statistics=True, rsvr_ids=rsvr_ids)
             else:
                 result_table = {"success": False, "warning": "库区ID列表为空"}
             
@@ -625,7 +633,7 @@ async def execute_task_stream(request: StreamExecuteRequest):
             
             now = datetime.now()
             scheme_name = f"调度方案_{now.strftime('%Y%m%d%H%M')}"
-            save_result = await agent.executor.save_scheme(
+            save_result = await executor.save_scheme(
                 scheme_name=scheme_name,
                 description=f"任务: {request.task}",
                 cover=True,
