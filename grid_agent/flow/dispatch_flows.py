@@ -112,12 +112,19 @@ class BaseDispatchFlow:
                 if result.get("data"):
                     context.data.update(result["data"])
             
+            # 返回最后一个skill的结果数据
+            last_result_data = None
+            for skill_key in reversed(self.required_skills):
+                if skill_key in skill_results and skill_results[skill_key].get("data"):
+                    last_result_data = skill_results[skill_key]["data"]
+                    break
+            
             return FlowResult(
                 success=True,
                 scenario=self.flow_name,
                 flow_steps=self.steps,
                 skill_results=skill_results,
-                final_output=context.result
+                final_output=last_result_data or context.data
             )
             
         except Exception as e:

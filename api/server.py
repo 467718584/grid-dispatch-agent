@@ -45,6 +45,7 @@ from grid_agent.skills.integration import (
     FloodControlSkill
 )
 from api.flood_api import router as flood_router
+from api.dispatch_api import router as dispatch_router
 
 # ============== 配置 ==============
 
@@ -83,6 +84,9 @@ app.add_middleware(
 
 # 注册防洪方案路由
 app.include_router(flood_router)
+
+# 注册发电调度路由
+app.include_router(dispatch_router)
 
 # ============== Pydantic Models ==============
 
