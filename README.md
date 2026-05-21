@@ -1,418 +1,185 @@
-# Grid Dispatch Agent (GDA) - 轻量化智能Agent框架
+# Grid-Dispatch-Agent (发电计划智能体)
 
-[English](README_EN.md) | 中文
-
----
-
-## 🎯 简介
-
-**Grid Dispatch Agent (GDA)** 是一个轻量化的通用智能Agent框架，通过Skill机制实现业务高度定制。支持Docker部署、REST API调用和真实业务系统集成。
-
-核心特点：
-- 🚀 **轻量化** - 仅依赖Python标准库 + requests
-- 🔌 **可扩展** - 通过Skill即插即用，无需修改框架代码
-- 🐳 **Docker部署** - 一键Docker部署，开箱即用
-- 🌐 **API服务** - REST API返回结构化JSON，前端友好
-- 🏭 **真实对接** - 支持对接真实电网调度系统API
-- 🌍 **通用性** - 不绑定具体业务，适用于多种场景
-- 📡 **飞书兼容** - 支持飞书流式接口格式 (Agent Chat Stream API v2.1)
+**基于Skill-Flow-Agent框架的电网调度智能体，支持6大发电计划场景**
 
 ---
 
-## 🏠 局域网离线部署
+## 📋 项目状态
 
-本项目支持在**无互联网连接的内网环境**部署，只需提供LLM API地址和业务API地址。
+| 项目 | 状态 |
+|------|------|
+| 框架版本 | v2.0 (架构升级中) |
+| 场景支持 | 6大场景 |
+| LLM集成 | ✅ 已对接模型服务API |
+| 电网API | 🔄 数据接口准备中 |
 
-### 📋 部署架构
+---
+
+## 🎯 6大应用场景
+
+| # | 场景 | 说明 |
+|---|------|------|
+| 1 | 日常计划编制 | 制作明天两杨组96点发电计划 |
+| 2 | 检修调整 | 机组检修时重新分配负荷 |
+| 3 | 来水修正 | 来水偏丰/偏枯时修正水位 |
+| 4 | 计划调整 | 按最新预报调整发电计划 |
+| 5 | 日内滚动 | 未来3小时日内计划更新 |
+| 6 | 顶峰支援 | 指定时段顶峰出力 |
+
+---
+
+## 🏗️ 架构设计 v2.0
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     局域网环境 (无外网)                          │
+│               发电计划智能体 v2.0 架构                       │
 ├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│   ┌─────────────────┐     ┌─────────────────────────────┐    │
-│   │   LLM API       │     │   Grid Dispatch API        │    │
-│   │   (大模型服务)    │     │   (电网调度系统)            │    │
-│   │                  │     │                            │    │
-│   │  http://xxx:8000 │     │  http://yyy:8080/api       │    │
-│   └────────┬─────────┘     └──────────────┬─────────────┘    │
-│            │                                │                 │
-│            │        ┌──────────────┐        │                 │
-│            └────────│  GDA Agent   │────────┘                 │
-│                     │  (Docker)    │                         │
-│                     │  端口: 8000   │                         │
-│                     └──────────────┘                         │
-│                              │                                │
-│                     ┌────────▼────────┐                      │
-│                     │   前端应用      │                      │
-│                     │  http://zzz     │                      │
-│                     └─────────────────┘                      │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │              LLM 思考层 (LLM Thinking Layer)            │ │
+│  │  任务理解 → 数据分析 → 策略制定 → 计划评估 → 报告生成     │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                            │                                 │
+│  ┌─────────────────────────┴─────────────────────────────┐  │
+│  │              Skill 执行层 (Skill Execution Layer)      │  │
+│  │  数据获取 → 优化计算 → 结果生成                         │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                            │                                 │
+│  ┌─────────────────────────┴─────────────────────────────┐  │
+│  │              API 数据层 (API Data Layer)               │  │
+│  │  电网API + 模型服务API                                  │  │
+│  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 🚀 Step-by-Step 部署步骤
+### 核心组件
 
-#### Step 1: 准备环境
-
-**方式A: Docker部署（推荐）**
-
-```bash
-# 在内网服务器上安装Docker
-# Docker安装包需要提前下载（在外网环境下载后导入）
-# 参考 https://docs.docker.com/engine/install/
-
-# 导入Docker镜像（如有tar包）
-docker load < grid-dispatch-agent.tar
-```
-
-**方式B: pip安装（Python环境）**
-
-```bash
-# Python >= 3.8 required
-pip install fastapi uvicorn requests pydantic
-```
-
-#### Step 2: 配置环境变量
-
-创建 `.env` 文件：
-
-```bash
-# 克隆/拷贝项目
-git clone https://github.com/467718584/grid-dispatch-agent.git
-cd grid-dispatch-agent
-
-# 创建.env文件
-cat > .env << EOF
-# ============== LLM 配置 ==============
-# 大模型API地址（局域网内可访问的地址）
-LLM_URL=http://192.168.1.100:8000/v1
-
-# LLM API密钥（如果需要）
-LLM_API_KEY=your-llm-api-key
-
-# ============== 电网调度API配置 ==============
-# 真实电网调度系统API地址
-GRID_API_BASE=http://192.168.1.200:8080/api
-
-# API用户名
-GRID_API_USER=66605384.475033835
-
-# ============== Agent配置 ==============
-# Agent服务端口
-AGENT_PORT=8000
-EOF
-```
-
-#### Step 3: 启动服务
-
-**Docker方式：**
-
-```bash
-# 编辑docker-compose.yml中的端口映射（如需更改）
-# 默认: 主机8000 -> 容器8000
-
-# 启动
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
-```
-
-**直接运行方式：**
-
-```bash
-# 方式1: 使用uvicorn命令行
-uvicorn api.server:app --host 0.0.0.0 --port 8000
-
-# 方式2: 使用Python直接运行
-python -m uvicorn api.server:app --host 0.0.0.0 --port 8000
-
-# 方式3: 后台运行
-nohup python -m uvicorn api.server:app --host 0.0.0.0 --port 8000 > agent.log 2>&1 &
-```
-
-#### Step 4: 验证部署
-
-```bash
-# 健康检查
-curl http://localhost:8000/health
-
-# 响应示例
-{
-  "status": "healthy",
-  "version": "1.0.0",
-  "skills_registered": ["data_fetch", "calc_reserve", "expert_infer", "output_json"]
-}
-```
+| 组件 | 说明 |
+|------|------|
+| `grid_agent/skill/` | 原子化Skill（数据获取、计算、输出） |
+| `grid_agent/flow/` | 场景化Flow（6大场景流程） |
+| `grid_agent/llm/` | LLM适配器（对接模型服务API） |
+| `grid_agent/data/` | Mock数据（静态测试数据） |
 
 ---
 
-## 🔗 对接两个URL详解
+## 📊 数据接口（Mock数据）
 
-### URL 1: LLM API（大模型服务）
-
-**用途**：Agent的思考和推理引擎，不绑定具体模型
-
-**配置方式**：
-
-```python
-# 方式1: 通过环境变量
-LLM_URL=http://your-llm-server:8000/v1
-
-# 方式2: 代码中指定
-agent = GridAgent(llm_url="http://192.168.1.100:8000/v1")
-```
-
-**支持的LLM服务**：
-- OpenAI兼容API（OpenAI API格式）
-- vLLM
-- Ollama（需配置为OpenAI模式）
-- 其他兼容OpenAI API的服务
-
-### URL 2: Grid Dispatch API（电网调度系统）
-
-**用途**：获取负荷/约束数据、执行调度计算、发布方案
-
-**配置方式**：
-
-```python
-# 注册真实API Skill时指定
-from grid_agent.skills.integration import GridDispatchAPISkill
-
-api_skill = GridDispatchAPISkill(
-    api_base_url="http://192.168.1.200:8080/api",
-    api_user="66605384.475033835"
-)
-agent.register_skill(api_skill)
-```
-
-**或通过配置文件**：
-
-```bash
-# .env
-GRID_API_BASE=http://192.168.1.200:8080/api
-GRID_API_USER=66605384.475033835
-```
+| # | 数据类型 | 接口 | 状态 |
+|---|---------|------|------|
+| 1 | 水库当前水位 | `get_reservoir_status` | ✅ |
+| 2 | 水库蓄能 | `get_reservoir_status` | ✅ |
+| 3 | 库容曲线 | `get_reservoir_curve` | ✅ |
+| 4 | 入库流量预报(96点) | `get_inflow_forecast` | ✅ |
+| 5 | 实时入库流量 | `get_realtime_inflow` | ✅ |
+| 6 | 机组状态 | `get_unit_status` | ✅ |
+| 7 | 机组可用出力 | `get_unit_available` | ✅ |
+| 8 | 振动区约束 | `get_unit_constraints` | ✅ |
+| 9 | 安全约束 | `get_unit_constraints` | ✅ |
+| 10 | 启停成本 | `get_unit_constraints` | ✅ |
+| 11 | 当前96点计划 | `get_current_plan` | ✅ |
+| 12 | 中长期电量分解 | `get_midlong_plan` | ✅ |
+| 13 | 电价预测 | `get_price_forecast` | ✅ |
+| 14 | 市场负荷预测 | `get_load_forecast` | ✅ |
+| 15 | 短期(3h)负荷 | `get_shortterm_load` | ✅ |
 
 ---
 
-## 🧪 测试指南
+## 🔧 技术栈
 
-### 1. 测试Agent基础功能
+- **框架**: Skill-Flow-Agent (通用智能体框架)
+- **LLM**: 联通数据智能模型服务 (`http://10.185.61.97:8999`)
+- **电网API**: `http://196.167.30.65:30002`
+- **语言**: Python 3.10+
+- **协议**: OpenAI兼容API
 
-```bash
-# 测试执行任务（非流式）
-curl -X POST "http://localhost:8000/execute" \
-  -H "Content-Type: application/json" \
-  -d '{"task": "电网调度综合分析"}'
-```
+---
 
-**响应示例**：
-```json
-{
-  "task_id": "a1b2c3d4",
-  "status": "success",
-  "data": {
-    "total_load_mw": 361,
-    "reserve_status": "adequate",
-    "alert_level": "normal",
-    "summary": {
-      "status": "normal",
-      "priority": "P2",
-      "action_required": "常规关注"
-    }
-  }
-}
-```
+## 🚀 快速开始
 
-### 2. 测试飞书流式接口
+### 1. 安装依赖
 
 ```bash
-# 测试流式输出
-curl -X POST "http://localhost:8000/execute/stream" \
-  -H "Content-Type: application/json" \
-  -d '{"task": "电网调度分析", "chat_id": null}'
-
-# 响应为SSE流，符合飞书开放平台格式
+pip install -r requirements.txt
 ```
 
-### 3. 测试真实API对接
+### 2. 配置环境变量
+
+```bash
+export GRID_API_BASE=http://196.167.30.65:30002
+export GRID_API_USER=66605384.475033835
+export LLM_BASE_URL=http://10.185.61.97:8999
+export LLM_API_KEY=your_api_key
+```
+
+### 3. 运行示例
 
 ```python
-# 创建测试脚本 test_real_api.py
-import asyncio
 from grid_agent import GridAgent
-from grid_agent.skills.integration import (
-    DataFetchRealSkill,
-    CalcDispatchRealSkill,
-    PublishSchemeRealSkill,
-    ModifyConstraintRealSkill
-)
 
-async def test_real_api():
-    # 创建Agent
-    agent = GridAgent(llm_url="http://192.168.1.100:8000/v1")
-    
-    # 注册真实API Skills
-    agent.register_skill(DataFetchRealSkill(api_base="http://192.168.1.200:8080/api"))
-    agent.register_skill(CalcDispatchRealSkill(api_base="http://192.168.1.200:8080/api"))
-    agent.register_skill(PublishSchemeRealSkill(api_base="http://192.168.1.200:8080/api"))
-    
-    # 设置流程
-    agent.set_flow([
-        "data_fetch_real",
-        "calc_dispatch_real",
-        "publish_scheme_real"
-    ])
-    
-    # 执行测试
-    result = await agent.execute("执行调度计算并发布方案")
-    print(result)
+agent = GridAgent()
 
-asyncio.run(test_real_api())
-```
+# 场景1: 日常计划编制
+result = await agent.execute("制作明天两杨组发电计划")
 
-### 4. 测试表格/图表输出
-
-```bash
-# 测试feishu_table格式输出
-curl -X POST "http://localhost:8000/execute" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task": "电网调度分析",
-    "skills": ["data_fetch", "calc_reserve", "output_json"]
-  }'
+# 场景5: 日内滚动
+result = await agent.execute("更新未来3小时日内发电计划")
 ```
 
 ---
 
-## 🔧 常用配置
-
-### docker-compose.yml 示例
-
-```yaml
-version: '3.8'
-services:
-  grid-agent:
-    build: .
-    container_name: grid-dispatch-agent
-    ports:
-      - "8000:8000"  # Agent服务端口
-    environment:
-      - LLM_URL=http://192.168.1.100:8000/v1
-      - LLM_API_KEY=${LLM_API_KEY}
-      - GRID_API_BASE=http://192.168.1.200:8080/api
-      - GRID_API_USER=66605384.475033835
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-```
-
-### Nginx反向代理（如需要）
-
-```nginx
-server {
-    listen 80;
-    server_name agent.your-domain.local;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        
-        # SSE流式响应支持
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 86400s;
-        chunked_transfer_encoding on;
-    }
-}
-```
-
----
-
-## 📡 API端点一览
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/` | GET | API信息 |
-| `/health` | GET | 健康检查 |
-| `/init` | POST | 初始化Agent |
-| `/execute` | POST | 执行任务（非流式） |
-| `/execute/stream` | POST | 执行任务（飞书流式） |
-| `/skills` | GET | 列出Skills |
-| `/agent/info` | GET | Agent信息 |
-
-访问 **http://localhost:8000/docs** 查看完整交互式API文档。
-
----
-
-## 🛠️ 故障排查
-
-### 服务无法启动
-
-```bash
-# 查看端口占用
-netstat -tlnp | grep 8000
-
-# 查看日志
-docker-compose logs grid-agent
-```
-
-### LLM连接失败
-
-```bash
-# 测试LLM连通性
-curl -X POST "http://192.168.1.100:8000/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "test"}]}'
-```
-
-### 电网API连接失败
-
-```bash
-# 测试API连通性
-curl -X GET "http://192.168.1.200:8080/api/common_getTableData" \
-  -H "Content-Type: application/json" \
-  -d '{"userName": "66605384.475033835", "tableName": "plan_table"}'
-```
-
----
-
-## 📁 项目结构
+## 📁 目录结构
 
 ```
 grid-dispatch-agent/
-├── grid_agent/                    # 核心框架
-│   ├── agent.py                  # Agent主类
-│   ├── skill/                    # Skill基类和注册表
-│   ├── llm/                      # LLM适配器
-│   ├── flow/                     # 流程引擎
-│   └── skills/                   # 业务Skill
-│       ├── integration/          # 真实API集成
-│       ├── data_fetch_skill.py   # 模拟数据获取
-│       ├── calc_reserve_skill.py # 备用计算
-│       └── ...
-├── api/                          # API服务
-│   └── server.py                 # FastAPI服务
-├── tests/                        # 测试
-├── docs/                         # 文档
-├── Dockerfile
-├── docker-compose.yml
-├── .env.example
-└── README.md
+├── grid_agent/
+│   ├── __init__.py
+│   ├── agent.py              # 智能体主类
+│   ├── skill/                # Skill定义
+│   │   ├── data_fetch/      # 数据获取Skills
+│   │   ├── calculation/      # 计算Skills
+│   │   └── output/           # 输出Skills
+│   ├── flow/                 # Flow定义
+│   │   ├── daily_plan.py     # 日常计划Flow
+│   │   ├── maintenance.py    # 检修调整Flow
+│   │   └── ...
+│   ├── llm/                  # LLM适配器
+│   │   └── adapter.py
+│   └── data/                 # Mock数据
+│       └── mock_data.py
+├── api/
+│   └── server.py            # FastAPI服务
+├── tests/
+│   └── test_scenarios.py     # 场景测试
+└── docs/
+    ├── 场景设计.md
+    └── 接口文档.md
 ```
 
 ---
 
-## 📄 许可证
+## 📝 开发日志
 
-MIT License
+### 2026-05-21
+- 完成6大场景需求分析
+- 完成v2.0架构设计
+- 完成LLM模型服务API对接
+- 完成Mock数据模块开发
+- 6场景Flow开发中
 
-## 🔗 相关链接
+### 2026-05-10
+- 完成流式输出调试
+- 交付版本: grid-dispatch-agent-20260510-202743.zip
 
-- [GitHub仓库](https://github.com/467718584/grid-dispatch-agent)
-- [飞书开放平台文档](https://open.feishu.cn/)
+---
+
+## 🔗 相关项目
+
+- [Skill-Flow-Agent](https://github.com/467718584/skill-flow-agent) - 通用智能体框架
+
+---
+
+## 📧 联系方式
+
+- 开发者: 极速科技
+- 项目管理员: OpenClaw Agent
