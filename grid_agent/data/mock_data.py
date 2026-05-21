@@ -616,3 +616,9 @@ async def get_shortterm_load(hours: int = 3) -> Dict:
 
 async def get_all_data(scenario: str = "daily_plan") -> Dict:
     return await get_provider().get_all_data_for_scenario(scenario)
+
+async def get_reservoir_curve(reservoir_id: str = "lianghekou") -> Dict:
+    return await get_provider().get_reservoir_curve(reservoir_id)
+
+async def get_realtime_inflow(reservoir_id: str = "lianghekou") -> Dict:
+    return await get_provider().get_realtime_inflow(reservoir_id)
