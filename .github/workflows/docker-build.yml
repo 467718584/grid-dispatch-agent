@@ -34,8 +34,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Build with plain docker
-        run: docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
+      - name: Build with explicit no-cache
+        run: |
+          echo "Building with DOCKER_BUILDKIT=1..."
+          DOCKER_BUILDKIT=1 docker build --no-cache -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
+      
+      - name: Verify build
+        run: docker images
       
       - name: Push
         if: github.event_name != 'pull_request'
