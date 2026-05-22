@@ -7,6 +7,7 @@ from .mock_data import (
     get_provider,
     get_mock_provider,
     get_all_data_for_daily_plan,
+    build_daily_plan_input,
     # 向后兼容函数
     get_unit_status,
     get_unit_available_power,

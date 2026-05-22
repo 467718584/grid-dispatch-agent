@@ -167,14 +167,22 @@ class MockDataProvider:
         return periods
     
     def _generate_water_level_forecast(self, base_level: float, base_flow: List[Dict]) -> List[Dict]:
-        """生成水位预报96点"""
+        """生成水位预报96点 - 真实水位变化应在±2米/天以内"""
         levels = []
         base_time = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         
         current_level = base_level
+        avg_inflow = sum(f["inflow"] for f in base_flow) / len(base_flow)
+        
         for i, inflow_data in enumerate(base_flow):
-            change = (inflow_data["inflow"] - 150) * 0.01
+            # 真实水位变化：入库流量与平均流量的差异导致微小变化
+            # 简化模型：每15分钟变化应在±0.02米以内
+            deviation = inflow_data["inflow"] - avg_inflow
+            # 使用更小的系数，让96点累计变化在±2米以内
+            change = deviation * 0.0002  # 从0.01改为0.0002
             current_level += change
+            # 确保水位在合理范围内
+            current_level = max(base_level - 2, min(base_level + 2, current_level))
             timestamp = base_time + timedelta(minutes=15*i)
             
             levels.append({
@@ -511,5 +519,27 @@ async def get_price_forecast() -> Dict:
         "data": {
             "periods": prices,
             "avg_price": round(avg_price, 4)
+        }
+    }
+
+
+def build_daily_plan_input() -> Dict:
+    """构建日计划编制所需的完整输入数据（Claude Code建议的辅助函数）"""
+    provider = get_provider()
+    
+    return {
+        "lianghekou": provider.get_lianghekou_data(),
+        "yangfenggou": provider.get_yangfenggou_data(),
+        "units": {
+            "lianghekou": [u.__dict__ for u in provider.get_units_by_reservoir("两河口")],
+            "yangfenggou": [u.__dict__ for u in provider.get_units_by_reservoir("杨房沟")]
+        },
+        "load_forecast": provider.get_load_forecast(),
+        "price_forecast": provider.get_price_forecast(),
+        "midlong_plan": provider.get_midlong_plan(),
+        "constraints": {
+            "safety_margin": 0.05,
+            "max_water_level_change": 5.0,
+            "min_reserve_capacity": 50
         }
     }
