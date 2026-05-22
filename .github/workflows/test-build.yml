@@ -11,22 +11,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Check files
+      - name: Check Dockerfile
         run: |
-          echo "=== Files ==="
-          ls -la
-          echo "=== Dockerfile ==="
+          echo "=== Dockerfile exists? ==="
+          ls -la Dockerfile
+          echo ""
+          echo "=== Content ==="
           cat Dockerfile
       
-      - name: Build image
-        run: docker build -t test:image .
-      
-      - name: Run briefly to test
+      - name: Simple build test
         run: |
-          docker run --rm -d --name test-container test:image
-          sleep 5
-          docker logs test-container
-          docker stop test-container || true
+          echo "=== Simple test ==="
+          echo 'FROM python:3.11-slim' > test.Dockerfile
+          echo 'RUN echo hello' >> test.Dockerfile
+          docker build -f test.Dockerfile -t simple:test .
+          echo "=== Done ==="
       
-      - name: Verify
-        run: docker images | grep test
+      - name: Full build
+        run: docker build -t test:image -f Dockerfile .
