@@ -29,6 +29,7 @@ import logging
 from datetime import datetime
 
 from grid_agent import GridAgent
+from grid_agent.llm.adapter import LLMAdapter
 from grid_agent.skills import (
     DataFetchSkill,
     CalcReserveSkill,
@@ -46,6 +47,7 @@ from grid_agent.skills.integration import (
 )
 from api.flood_api import router as flood_router
 from api.dispatch_api import router as dispatch_router
+from api.stream_output import FeishuStreamOutput
 
 # ============== 配置 ==============
 
@@ -304,7 +306,11 @@ class AgentManager:
         if cls._initialized:
             return
         
-        cls._agent = GridAgent(llm_url=llm_url, llm_api_key=llm_api_key)
+        # 创建LLM适配器
+        llm_adapter = None
+        if llm_url:
+            llm_adapter = LLMAdapter(base_url=llm_url, api_key=llm_api_key)
+        cls._agent = GridAgent(llm_adapter=llm_adapter)
         cls._use_real_api = use_real_api
         
         # 注册模拟Skill（开发测试用）

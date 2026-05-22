@@ -8,12 +8,17 @@ Grid Dispatch Agent - 发电调度API端点
 """
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import logging
+import uuid
+import json
+import asyncio
 
 from grid_agent.agent import GridAgent, AgentRequest, AgentResponse
 from grid_agent.flow import execute_flow
+from api.stream_output import FeishuStreamOutput
 
 logger = logging.getLogger(__name__)
 
@@ -334,3 +339,181 @@ async def list_scenarios():
         "scenarios": scenarios,
         "count": len(scenarios)
     }
+
+
+# ============== 流式输出端点 ==============
+
+class StreamRequest(BaseModel):
+    """流式请求基类"""
+    chat_id: Optional[str] = Field(None, description="聊天ID")
+
+
+class DailyPlanStreamRequest(StreamRequest):
+    """日常计划编制流式请求"""
+    target_energy: Optional[float] = Field(None, description="目标电量(MWh)")
+    priority: Optional[str] = Field("balance", description="优化优先级: balance/price/load")
+
+
+@router.post("/daily_plan/stream")
+async def daily_plan_stream(request: DailyPlanStreamRequest):
+    """
+    日常计划编制 - 流式响应
+    
+    逐步输出:
+    1. 系统初始化
+    2. 数据获取
+    3. 计划编制
+    4. 优化调整
+    5. 完成
+    """
+    chat_id = request.chat_id or "mock_chat_001"
+    conversation_id = str(uuid.uuid4())
+    
+    async def generate():
+        try:
+            # 步骤1: 初始化
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                "🔗 **系统初始化**\n正在连接电网调度系统...",
+                component_name="step-init",
+                step_name="系统初始化",
+                step_desc="正在连接电网调度系统..."
+            )
+            await asyncio.sleep(0.3)
+            
+            # 步骤2: 数据获取
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                "📋 **数据获取**\n正在读取水库状态、入库流量预报、机组出力...",
+                component_name="step-data",
+                step_name="数据获取",
+                step_desc="正在读取发电调度数据..."
+            )
+            await asyncio.sleep(0.3)
+            
+            # 执行Flow
+            flow_result = await execute_flow("daily_plan", request.dict(exclude_none=True))
+            
+            # 步骤3: 计划编制
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                "⚡ **计划编制**\n正在生成96点发电计划...",
+                component_name="step-calculate",
+                step_name="计划编制",
+                step_desc="正在进行调度计算..."
+            )
+            await asyncio.sleep(0.3)
+            
+            if not flow_result.success:
+                yield FeishuStreamOutput.format_error(
+                    chat_id, conversation_id, str(uuid.uuid4()),
+                    f"计划编制失败: {flow_result.error}"
+                )
+                yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+                return
+            
+            periods = flow_result.final_output.get('periods', [])
+            summary = flow_result.final_output.get('summary', {})
+            
+            # 步骤4: 结果输出
+            msg_id = str(uuid.uuid4())
+            result_text = f"""📊 **计划编制完成！**
+
+✅ 96点发电计划: {len(periods)} 个点
+📅 目标日期: {flow_result.final_output.get('target_date', '明天')}
+📈 总电量: {summary.get('total_output', 0):.2f} MWh
+⚡ 平均出力: {summary.get('avg_output', 0):.2f} MW
+🔋 机组数量: {summary.get('unit_count', 0)}
+
+**各机组出力:**
+"""
+            
+            for unit in flow_result.final_output.get('units', []):
+                result_text += f"- {unit.get('name', '机组')}: {unit.get('total_output', 0):.2f} MWh\n"
+            
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                result_text,
+                component_name="step-result",
+                step_name="结果输出",
+                step_desc="计划编制完成"
+            )
+            await asyncio.sleep(0.2)
+            
+            # 完成
+            yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+            
+        except Exception as e:
+            logger.error(f"[daily_plan_stream] Error: {e}")
+            yield FeishuStreamOutput.format_error(chat_id, conversation_id, str(uuid.uuid4()), str(e))
+            yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+    
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/peak_support/stream")
+async def peak_support_stream(request: PeakSupportRequest):
+    """
+    顶峰支援 - 流式响应
+    """
+    chat_id = request.chat_id or "mock_chat_001"
+    conversation_id = str(uuid.uuid4())
+    
+    async def generate():
+        try:
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                "🔗 **顶峰能力评估**\n正在评估机组顶峰出力...",
+                component_name="step-init",
+                step_name="顶峰能力评估",
+                step_desc="正在评估机组顶峰能力..."
+            )
+            await asyncio.sleep(0.3)
+            
+            flow_result = await execute_flow("peak_support", request.dict())
+            
+            if not flow_result.success:
+                yield FeishuStreamOutput.format_error(
+                    chat_id, conversation_id, str(uuid.uuid4()),
+                    f"顶峰支援失败: {flow_result.error}"
+                )
+                yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+                return
+            
+            data = flow_result.final_output
+            summary = data.get('summary', {})
+            
+            msg_id = str(uuid.uuid4())
+            result_text = f"""✅ **顶峰支援完成！**
+
+⏰ 顶峰时段: {request.peak_start} - {request.peak_end}
+⚡ 最大顶峰出力: {summary.get('max_peak_output', 0)} MW
+📊 顶峰时段数: {summary.get('peak_periods', 0)}
+
+**出力分配:**
+"""
+            
+            for unit in data.get('units', []):
+                result_text += f"- {unit.get('name', '机组')}: 最大 {unit.get('max_output', 0)} MW\n"
+            
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                result_text,
+                component_name="step-result",
+                step_name="结果输出",
+                step_desc="顶峰支援完成"
+            )
+            await asyncio.sleep(0.2)
+            
+            yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+            
+        except Exception as e:
+            logger.error(f"[peak_support_stream] Error: {e}")
+            yield FeishuStreamOutput.format_error(chat_id, conversation_id, str(uuid.uuid4()), str(e))
+            yield FeishuStreamOutput.format_finish(chat_id, conversation_id, str(uuid.uuid4()))
+    
+    return StreamingResponse(generate(), media_type="text/event-stream")
