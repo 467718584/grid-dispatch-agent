@@ -6,21 +6,25 @@ on:
     branches: [main]
 
 jobs:
-  test-build:
+  test:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       
-      - name: Test basic docker
+      - name: Check files
         run: |
-          docker version
-          docker info
+          echo "=== PWD ==="
+          pwd
+          echo "=== Files ==="
+          ls -la
+          echo "=== Dockerfile ==="
+          cat Dockerfile
       
-      - name: Build simple image
+      - name: Build
         run: |
-          echo "FROM python:3.11-slim" > Dockerfile.test
-          echo "RUN echo 'hello'" >> Dockerfile.test
-          docker build -t test:local -f Dockerfile.test .
-          docker run --rm test:local
+          echo "=== Building ==="
+          docker build -t test:image . 2>&1
+          echo "=== Exit: $? ==="
+      
+      - name: Verify
+        run: docker images
