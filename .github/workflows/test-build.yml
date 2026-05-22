@@ -13,18 +13,20 @@ jobs:
       
       - name: Check files
         run: |
-          echo "=== PWD ==="
-          pwd
           echo "=== Files ==="
           ls -la
           echo "=== Dockerfile ==="
           cat Dockerfile
       
-      - name: Build
+      - name: Build image
+        run: docker build -t test:image .
+      
+      - name: Run briefly to test
         run: |
-          echo "=== Building ==="
-          docker build -t test:image . 2>&1
-          echo "=== Exit: $? ==="
+          docker run --rm -d --name test-container test:image
+          sleep 5
+          docker logs test-container
+          docker stop test-container || true
       
       - name: Verify
-        run: docker images
+        run: docker images | grep test
