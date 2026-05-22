@@ -69,6 +69,106 @@ class DispatchResponse(BaseModel):
     error: Optional[str] = None
 
 
+class ChatRequest(BaseModel):
+    """统一对话请求 - 自然语言输入"""
+    message: str = Field(..., description="用户自然语言输入")
+    user_id: Optional[str] = Field(None, description="用户ID")
+
+
+class ChatResponse(BaseModel):
+    """统一对话响应"""
+    success: bool
+    scenario: str
+    intent: str
+    message: str
+    data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+# ============== 意图识别映射 ==============
+
+INTENT_KEYWORDS = {
+    "daily_plan": ["96点", "发电计划", "日常计划", "制作计划", "明天", "两杨组", "日计划"],
+    "maintenance": ["检修", "维修", "停机", "机组检修", "检修安排"],
+    "inflow_adjust": ["来水", "偏丰", "偏枯", "水位调整", "来水修正", "来水预报"],
+    "plan_update": ["更新计划", "调整计划", "修改计划", "计划调整", "计划更新"],
+    "intraday": ["日内", "滚动", "小时", "短期", "实时调整"],
+    "peak_support": ["顶峰", "peak", "支援", "高峰", "调峰"],
+}
+
+
+def parse_intent(user_message: str) -> tuple:
+    """从自然语言中解析意图和参数"""
+    msg_lower = user_message.lower()
+    
+    for intent, keywords in INTENT_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in msg_lower:
+                # 提取参数
+                params = {}
+                if "明天" in user_message:
+                    params["target_date"] = "tomorrow"
+                if "两杨组" in user_message or "两河" in user_message:
+                    params["region"] = "liangyang"
+                
+                return (intent, params)
+    
+    return ("daily_plan", {})  # 默认日常计划
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    统一对话接口 - 自然语言触发
+    
+    用户输入自然语言，自动识别意图并执行对应任务流
+    
+    示例:
+    - "制作明天两杨组的发电计划"
+    - "来水偏丰了，帮我调整一下"
+    - "机组U02需要检修"
+    
+    Returns:
+        执行结果
+    """
+    try:
+        user_message = request.message
+        
+        # 1. 意图识别
+        intent, params = parse_intent(user_message)
+        
+        # 2. 执行对应Flow
+        flow_result = await execute_flow(intent, params)
+        
+        # 3. 构建响应
+        if flow_result.success:
+            return ChatResponse(
+                success=True,
+                scenario=intent,
+                intent=intent,
+                message=f"✅ 已识别意图: {intent}\n\n执行完成！",
+                data=flow_result.final_output
+            )
+        else:
+            return ChatResponse(
+                success=False,
+                scenario=intent,
+                intent=intent,
+                message=f"❌ 执行失败",
+                error=flow_result.error
+            )
+            
+    except Exception as e:
+        logger.error(f"[chat] Error: {e}")
+        return ChatResponse(
+            success=False,
+            scenario="unknown",
+            intent="unknown",
+            message="处理异常",
+            error=str(e)
+        )
+
+
 # ============== API端点 ==============
 
 @router.post("/daily_plan", response_model=DispatchResponse)
