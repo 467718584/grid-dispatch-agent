@@ -129,7 +129,7 @@ async def chat(request: ChatRequest):
     - "机组U02需要检修"
     
     Returns:
-        执行结果
+        执行结果（非流式）
     """
     try:
         user_message = request.message
@@ -167,6 +167,98 @@ async def chat(request: ChatRequest):
             message="处理异常",
             error=str(e)
         )
+
+
+class ChatStreamRequest(BaseModel):
+    """对话流式请求"""
+    message: str = Field(..., description="用户自然语言输入")
+    user_id: Optional[str] = Field(None, description="用户ID")
+    chat_id: Optional[str] = Field(None, description="飞书chat_id")
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatStreamRequest):
+    """
+    统一对话接口 - 流式响应
+    
+    用户输入自然语言，自动识别意图并流式返回执行过程
+    
+    示例:
+    - "制作明天两杨组的发电计划"
+    - "来水偏丰了，帮我调整一下"
+    
+    Returns:
+        Server-Sent Events 流式输出
+    """
+    chat_id = request.chat_id or "mock_chat_001"
+    conversation_id = str(uuid.uuid4())
+    
+    async def generate():
+        try:
+            user_message = request.message
+            
+            # 步骤1: 意图识别
+            intent, params = parse_intent(user_message)
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                f"🎯 **意图识别**\n已识别: {intent}\n\n开始执行任务...",
+                component_name="intent"
+            )
+            
+            # 步骤2: 数据获取
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_text(
+                chat_id, conversation_id, msg_id,
+                "📊 **数据获取**\n正在读取两河口、杨房沟水库数据...",
+                component_name="data-fetch"
+            )
+            
+            # 步骤3: 执行Flow
+            flow_result = await execute_flow(intent, params)
+            
+            if flow_result.success:
+                # 执行结果输出
+                msg_id = str(uuid.uuid4())
+                
+                output = flow_result.final_output
+                total_energy = output.get('total_energy', 0)
+                lianghekou = output.get('lianghekou_energy', 0)
+                yangfenggou = output.get('yangfenggou_energy', 0)
+                summary = output.get('summary_text', '')
+                
+                result_msg = (
+                    f"✅ **任务完成**\n\n"
+                    f"📈 发电计划\n"
+                    f"   总电量: {total_energy/1000:.1f} GWh\n"
+                    f"   两河口: {lianghekou/1000:.1f} GWh\n"
+                    f"   杨房沟: {yangfenggou/1000:.1f} GWh\n\n"
+                    f"📝 {summary}"
+                )
+                
+                yield FeishuStreamOutput.format_text(
+                    chat_id, conversation_id, msg_id,
+                    result_msg,
+                    component_name="result"
+                )
+            else:
+                msg_id = str(uuid.uuid4())
+                yield FeishuStreamOutput.format_error(
+                    chat_id, conversation_id, msg_id,
+                    f"❌ 执行失败: {flow_result.error}",
+                    component_name="error"
+                )
+                
+        except Exception as e:
+            logger.error(f"[chat/stream] Error: {e}")
+            msg_id = str(uuid.uuid4())
+            yield FeishuStreamOutput.format_error(
+                chat_id, conversation_id, msg_id,
+                f"❌ 系统异常: {str(e)}",
+                component_name="error"
+            )
+    
+    return StreamingResponse(generate(), media_type="text/event-list")
 
 
 # ============== API端点 ==============
