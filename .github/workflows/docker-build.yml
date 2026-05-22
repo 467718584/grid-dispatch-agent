@@ -34,35 +34,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Debug - list files
-        run: |
-          echo "=== Current directory ==="
-          ls -la
-          echo ""
-          echo "=== Dockerfile ==="
-          cat Dockerfile
-          echo ""
-          echo "=== grid_agent directory ==="
-          ls -la grid_agent/
-          echo ""
-          echo "=== api directory ==="
-          ls -la api/
+      - name: Build with plain docker
+        run: docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
       
-      - name: Build image
-        run: |
-          set -x
-          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest . 2>&1
-          set +x
-      
-      - name: Test image
-        run: |
-          docker images | grep grid-dispatch
-          docker history ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest || true
-      
-      - name: Push image
+      - name: Push
         if: github.event_name != 'pull_request'
         run: |
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          echo "## ✅ Docker Image Built and Pushed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "## Built: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
