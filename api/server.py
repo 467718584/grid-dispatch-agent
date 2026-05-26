@@ -47,6 +47,7 @@ from grid_agent.skills.integration import (
 )
 from api.flood_api import router as flood_router
 from api.dispatch_api import router as dispatch_router
+from api.openapi_v1 import router as openapi_router
 from api.stream_output import FeishuStreamOutput
 
 # ============== 配置 ==============
@@ -89,6 +90,9 @@ app.include_router(flood_router)
 
 # 注册发电调度路由
 app.include_router(dispatch_router)
+
+# 注册OpenAPI v1路由（中枢平台规范）
+app.include_router(openapi_router)
 
 # ============== Pydantic Models ==============
 
